@@ -1,0 +1,86 @@
+# services:
+#   mongo:
+#     image: mongo:7
+#     ports:
+#       - "27017:27017"
+#     volumes:
+#       - mongo_data:/data/db
+
+#   user-service:
+#     build: ./user-service
+#     ports:
+#       - "3001:3001"
+#     depends_on:
+#       - mongo
+
+#   order-service:
+#     build: ./order-service
+#     ports:
+#       - "3002:3002"
+#     depends_on:
+#       - mongo
+#     restart: on-failure
+
+#   api-gateway:
+#     build: ./api-gateway
+#     ports:
+#       - "3000:3000"
+#     depends_on:
+#       - user-service
+#       - order-service
+
+# volumes:
+#   mongo_data:
+
+
+
+
+
+
+##for development
+
+
+services:
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  user-service:
+    build: ./user-service
+    ports:
+      - "3001:3001"
+    depends_on:
+      - mongo
+    volumes:
+      - ./user-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  order-service:
+    build: ./order-service
+    ports:
+      - "3002:3002"
+    depends_on:
+      - mongo
+    volumes:
+      - ./order-service:/app
+      - /app/node_modules
+    command: npm run dev
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-service
+      - order-service
+    volumes:
+      - ./api-gateway:/app
+      - /app/node_modules
+    command: npm run dev
+
+volumes:
+  mongo_data:

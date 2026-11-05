@@ -1,49 +1,75 @@
 const express = require('express');
 const axios = require('axios');
+const mongoose = require('mongoose');
 
 const app = express();
-const PORT = 3002;
-
 app.use(express.json());
 
-const orders = [
-  { id: 101, userId: 1, product: 'Laptop', amount: 50000 },
-  { id: 102, userId: 2, product: 'Mobile', amount: 20000 }
-];
+const PORT = 3002;
 
-app.get('/orders', async (req, res) => {
+const Order = mongoose.model('Order', new mongoose.Schema({
+  orderId: Number,
+  userId: Number,
+  product: String,
+  amount: Number,
+  customerName: String,
+  status: { type: String, default: 'pending' }
+}));
+
+app.post('/orders', async (req, res) => {
   try {
+    const { userId, product, amount } = req.body;
+
+    if (!userId || !product || amount == null) {
+      return res.status(400).json({
+        success: false,
+        message: 'All fields are required'
+      });
+    }
+
     const response = await axios.get(
-      'http://localhost:3001/users'
+      `http://user-service:3001/users/${userId}`,
+      { timeout: 3000 }
     );
 
-    const users = response.data.users;
+    const user = response.data.user;
 
-    const ordersWithUsers = orders.map((order) => {
-      const user = users.find(
-        (u) => u.id === order.userId
-      );
-
-      return {
-        ...order,
-        user: user || null
-      };
+    const order = await Order.create({
+      orderId: Date.now(),
+      userId,
+      product,
+      amount,
+      customerName: user.name
     });
 
-    res.json({
+    res.status(201).json({
       success: true,
-      message: 'Orders fetched with user details',
-      orders: ordersWithUsers
+      message: 'Order created',
+      order
     });
+
   } catch (error) {
-    res.status(500).json({
+    res.status(503).json({
       success: false,
-      message: 'Unable to communicate with User Service',
+      message: 'Unable to create order',
       error: error.message
     });
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Order Service running on port ${PORT}`);
+app.get('/orders', async (req, res) => {
+  const orders = await Order.find();
+
+  res.json({
+    success: true,
+    orders
+  });
 });
+
+mongoose.connect('mongodb://mongo:27017/order_db')
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log('Order Service running on port ' + PORT);
+    });
+  })
+  .catch(console.error);
