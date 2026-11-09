@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const mongoose = require('mongoose');
+const logger = require('./logger');
 
 const app = express();
 app.use(express.json());
@@ -17,6 +18,40 @@ const Order = mongoose.model('Order', new mongoose.Schema({
 }));
 
 
+//retry 
+
+const sleep = (ms) =>
+  new Promise(resolve => setTimeout(resolve, ms));
+
+async function getUserWithRetry(userId, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`User Service attempt: ${attempt}`);
+
+      const response = await axios.get(
+        `http://user-service:3001/users/${userId}`,
+        { timeout: 3000 }
+      );
+
+      return response.data.user;
+
+    } catch (error) {
+      const retryable =
+        ['ECONNABORTED', 'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET']
+          .includes(error.code) ||
+        [502, 503, 504].includes(error.response?.status);
+
+      if (!retryable || attempt === maxRetries) {
+        throw error;
+      }
+
+      console.log(`Retrying in 1 second...`);
+      await sleep(1000);
+    }
+  }
+}
+
+
 app.post('/orders', async (req, res) => {
   try {
     const { userId, product, amount } = req.body;
@@ -30,13 +65,10 @@ app.post('/orders', async (req, res) => {
     }
 
     // Check User Service
-    const response = await axios.get(
-      `http://user-service:3001/users/${userId}`,
-      { timeout: 3000 }
-    );
+    const user = await getUserWithRetry(userId);
 
-    const user = response.data.user;
-
+    logger.info('Validating user', { userId });
+    
     // Validate user
     if (!user) {
       return res.status(404).json({
@@ -54,6 +86,11 @@ app.post('/orders', async (req, res) => {
       customerName: user.name
     });
 
+    logger.info('Order created successfully', {
+      orderId: order.orderId,
+      userId: order.userId
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Order created',
@@ -61,7 +98,10 @@ app.post('/orders', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Order creation error:', error.message);
+    logger.error('Order creation failed', {
+      message: error.message,
+      code: error.code
+    });
 
     // User not found
     if (error.response?.status === 404) {
@@ -118,7 +158,10 @@ app.get('/orders', async (req, res) => {
       orders
     });
   } catch (error) {
-    console.error('Fetch orders error:', error.message);
+    logger.error('Fetch orders error:', {
+      message: error.message,
+      code: error.code
+    });
 
     return res.status(500).json({
       success: false,
@@ -134,6 +177,9 @@ mongoose.connect('mongodb://mongo:27017/order_db')
     });
   })
   .catch((error) => {
-    console.error('MongoDB connection failed:', error.message);
+    logger.error('MongoDB connection failed:', {
+      message: error.message,
+      code: error.code
+    });
     process.exit(1);
   });
